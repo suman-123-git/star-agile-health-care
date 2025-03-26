@@ -1,64 +1,118 @@
 pipeline {
   agent any
-
-  tools {
+     tools {
        maven 'M2_HOME'
-  }
-
+           }
+     
   stages {
     stage('Git Checkout') {
       steps {
-        echo 'This stage clones the repo from GitHub'
-        git branch: 'master', url: 'https://github.com/suman-123-git/star-agile-health-care.git'
-      }
-    }
-
+        echo 'This stage is to clone the repo from github'
+        git branch: 'master', url: 'https://github.com/rohinicbabu/star-agile-health-care.git'
+                        }
+            }
     stage('Create Package') {
       steps {
-        echo 'This stage compiles, tests, and packages the application'
-        sh 'mvn clean package'
-      }
-    }
-
+        echo 'This stage will compile, test, package my application'
+        sh 'mvn package'
+                          }
+            }
     stage('Generate Test Report') {
       steps {
-        echo 'Generating Test Report using TestNG'
-        publishHTML([allowMissing: true, alwaysLinkToLastBuild: false, keepAll: false, 
-                     reportDir: 'target/surefire-reports', reportFiles: 'index.html', 
-                     reportName: 'HTML Report'])
-      }
-    }
-
-    stage('Create Docker Image') {
+        echo 'This stage generate Test report using TestNG'
+        publishHTML([allowMissing: false, alwaysLinkToLastBuild: false, keepAll: false, reportDir: '/var/lib/jenkins/workspace/Healthcare/target/surefire-reports', reportFiles: 'index.html', reportName: 'HTML Report', reportTitles: '', useWrapperFileDirectly: true])
+                          }
+            }
+     stage('Create Docker Image') {
       steps {
-        echo 'Building Docker image'
+        echo 'This stage will Create a Docker image'
         sh 'docker build -t suman2000/healthcare:1.0 .'
+                          }
+            }
+     stage('Login to Dockerhub') {
+      steps {
+        echo 'This stage will loginto Dockerhub' 
+        withCredentials([usernamePassword(credentialsId: 'dockerloginnew', passwordVariable: 'dockerpass', usernameVariable: 'dockeruser')]) {
+        sh 'docker login -u ${dockeruser} -p ${dockerpass}'
+            }
+         }
+     }
+    stage('Docker Push-Image') {
+      steps {
+        echo 'This stage will push my new image to the dockerhub'
+        sh 'docker push suman2000/healthcare:1.0'
+            }
+      }
+    stage('AWS-Login') {
+      steps {
+        withCredentials([aws(accessKeyVariable: 'AWS_ACCESS_KEY_ID', credentialsId: 'Awsaccess', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+         }
       }
     }
-
-    stage('Login to Docker Hub') {
+    stage('Terraform Operations for test workspace') {
       steps {
-        echo 'Logging into Docker Hub'
-        withCredentials([usernamePassword(credentialsId: 'dockerloginnew', 
-                                          passwordVariable: 'dockerpass', 
-                                          usernameVariable: 'dockeruser')]) {
-          sh 'echo ${dockerpass} | docker login -u ${dockeruser} --password-stdin'
+        script {
+          sh '''
+            terraform workspace select test || terraform workspace new test
+            terraform init
+            terraform plan
+            terraform destroy -auto-approve
+          '''
         }
       }
     }
-
-    stage('Push Docker Image') {
+    stage('Terraform destroy & apply for test workspace') {
       steps {
-        echo 'Pushing Docker image to Docker Hub'
-        sh 'docker push suman2000/healthcare:1.0'
+        sh 'terraform apply -auto-approve'
+      }
+    }
+    stage('get kubeconfig') {
+      steps {
+        sh 'aws eks update-kubeconfig --region us-east-1 --name test-cluster'
+        sh 'kubectl get nodes'
+      }
+    }
+    stage('Deploying the application') {
+      steps {
+        sh 'kubectl apply -f app-deploy.yml'
+        sh 'kubectl get svc'
+      }
+    }
+    stage('Terraform Operations for Production workspace') {
+      when {
+        expression {
+          return currentBuild.currentResult == 'SUCCESS'
+        }
+      }
+      steps {
+        script {
+          sh '''
+            terraform workspace select prod || terraform workspace new prod
+            terraform init
+            terraform plan
+            terraform destroy -auto-approve
+          '''
+        }
+      }
+    }
+    stage('Terraform destroy & apply for production workspace') {
+      steps {
+        sh 'terraform apply -auto-approve'
+      }
+    }
+    stage('get kubeconfig for production') {
+      steps {
+        sh 'aws eks update-kubeconfig --region us-east-1 --name prod-cluster'
+        sh 'kubectl get nodes'
+      }
+    }
+    stage('Deploying the application to production') {
+      steps {
+        sh 'kubectl apply -f app-deploy.yml'
+        sh 'kubectl get svc'
       }
     }
   }
-
-  post {
-    always {
-      echo 'Cleaning workspace after build'
-      cleanWs()
-    }
-  }
 }
+   
+     
