@@ -2,7 +2,7 @@ pipeline {
   agent any
 
   tools {
-    maven 'Maven-Configured-In-Jenkins'  // Ensure this matches your Jenkins Maven tool name
+       maven 'M2_HOME'
   }
 
   stages {
